@@ -9,7 +9,7 @@ namespace Nexus.Writers
         {
             List<int> codePoints;
 
-            if (value == null)
+            if (value == default)
             {
                 throw new ArgumentNullException("str");
             }

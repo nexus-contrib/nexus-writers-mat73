@@ -1,4 +1,5 @@
 ﻿using HDF.PInvoke;
+using Microsoft.Extensions.Logging;
 using Nexus.DataModel;
 using Nexus.Extensibility;
 using System;
@@ -8,13 +9,17 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Nexus.Writers
 {
     [DataWriterFormatName("Matlab v7.3 (*.mat)")]
-    [ExtensionDescription("Store data in Matlab's hierachical data format (v7.3).")]
+    [ExtensionDescription(
+        "Store data in Matlab's hierachical data format (v7.3).",
+        "https://github.com/Apollo3zehn/nexus-writers-mat73",
+        "https://github.com/Apollo3zehn/nexus-writers-mat73")]
     public class Mat73 : IDataWriter
     {
         #region "Fields"
@@ -23,12 +28,25 @@ namespace Nexus.Writers
 
         private long _fileId = -1;
         private TimeSpan _lastSamplePeriod;
+        private JsonSerializerOptions _serializerOptions;
+
+        #endregion
+
+        #region Constructors
+
+        public Mat73()
+        {
+            _serializerOptions = new JsonSerializerOptions()
+            {
+                WriteIndented = true
+            };
+        }
 
         #endregion
 
         #region Properties
 
-        private DataWriterContext Context { get; set; } = null!;
+        private DataWriterContext Context { get; set; } = default!;
 
         #endregion
 
@@ -36,12 +54,12 @@ namespace Nexus.Writers
 
         public Task SetContextAsync(
            DataWriterContext context,
+           ILogger logger,
            CancellationToken cancellationToken)
         {
             this.Context = context;
             return Task.CompletedTask;
         }
-
 
         public Task OpenAsync(
             DateTime fileBegin,
@@ -65,7 +83,6 @@ namespace Nexus.Writers
 
                 try
                 {
-
                     propertyId = H5P.create(H5P.FILE_CREATE);
                     H5P.set_userblock(propertyId, USERBLOCK_SIZE);
                     _fileId = H5F.create(filePath, H5F.ACC_TRUNC, propertyId);
@@ -76,9 +93,9 @@ namespace Nexus.Writers
                     // file
                     var textEntries = new List<TextEntry>()
                     {
-                        new TextEntry("/metadata", "system_name", "Nexus"),
-                        new TextEntry("/metadata", "date_time", fileBegin.ToString("yyyy-MM-ddTHH-mm-ss") + "Z"),
-                        new TextEntry("/metadata", "sample_period", samplePeriod.ToUnitString())
+                        new TextEntry("/properties", "system_name", "Nexus"),
+                        new TextEntry("/properties", "date_time", fileBegin.ToString("yyyy-MM-ddTHH-mm-ss") + "Z"),
+                        new TextEntry("/properties", "sample_period", samplePeriod.ToUnitString())
                     };
 
                     foreach (var catalogItemGroup in catalogItems.GroupBy(catalogItem => catalogItem.Catalog))
@@ -89,12 +106,11 @@ namespace Nexus.Writers
                         var catalog = catalogItemGroup.Key;
                         var physicalId = catalog.Id.TrimStart('/').Replace('/', '_');
 
-                        if (catalog.Properties is not null)
+                        if (catalog.Properties.HasValue)
                         {
-                            foreach (var property in catalog.Properties.Take(58))
-                            {
-                                textEntries.Add(new TextEntry($"{physicalId}/metadata", property.Key, property.Value));
-                            }
+                            var key = "properties";
+                            var value = JsonSerializer.Serialize(catalog.Properties.Value, _serializerOptions);
+                            textEntries.Add(new TextEntry($"/{physicalId}", key, value));
                         }
 
                         long groupId = -1;

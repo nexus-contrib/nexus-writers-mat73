@@ -29,10 +29,10 @@ namespace Nexus.Writers.Tests
 
             var context = new DataWriterContext(
                 ResourceLocator: new Uri(targetFolder),
-                Configuration: new Dictionary<string, string>(),
-                Logger: NullLogger.Instance);
+                SystemConfiguration: default!,
+                RequestConfiguration: default!);
 
-            await dataWriter.SetContextAsync(context, CancellationToken.None);
+            await dataWriter.SetContextAsync(context, NullLogger.Instance, CancellationToken.None);
 
             var begin = new DateTime(2020, 01, 01, 0, 0, 0, DateTimeKind.Utc);
             var samplePeriod = TimeSpan.FromSeconds(1);
@@ -84,7 +84,7 @@ namespace Nexus.Writers.Tests
 
             Assert.Equal(4, h5File.Children.Count());
 
-            var metadata = h5File.Group("metadata");
+            var properties = h5File.Group("properties");
 
             // catalog 1
             var catalog1 = h5File.Group("A_B_C");
