@@ -4,9 +4,9 @@
     {
         public TextEntry(string path, string name, string content)
         {
-            this.Path = path;
-            this.Name = name;
-            this.Content = content;
+            Path = path;
+            Name = name;
+            Content = content;
         }
 
         public string Path { get; private set; }

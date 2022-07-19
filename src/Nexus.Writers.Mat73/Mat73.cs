@@ -57,7 +57,7 @@ namespace Nexus.Writers
            ILogger logger,
            CancellationToken cancellationToken)
         {
-            this.Context = context;
+            Context = context;
             return Task.CompletedTask;
         }
 
@@ -73,7 +73,7 @@ namespace Nexus.Writers
                 _lastSamplePeriod = samplePeriod;
 
                 var totalLength = (ulong)(filePeriod.Ticks / samplePeriod.Ticks);
-                var root = this.Context.ResourceLocator.ToPath();
+                var root = Context.ResourceLocator.ToPath();
                 var filePath = Path.Combine(root, $"{fileBegin.ToString("yyyy-MM-ddTHH-mm-ss")}Z_{samplePeriod.ToUnitString()}.mat");
 
                 if (File.Exists(filePath))
@@ -117,13 +117,13 @@ namespace Nexus.Writers
 
                         try
                         {
-                            groupId = this.OpenOrCreateStruct(_fileId, physicalId).GroupId;
+                            groupId = OpenOrCreateStruct(_fileId, physicalId).GroupId;
 
                             // file -> catalog -> resources
                             foreach (var catalogItem in catalogItemGroup)
                             {
                                 (var chunkLength, var chunkCount) = GeneralHelper.CalculateChunkParameters(totalLength);
-                                this.PrepareResource(groupId, catalogItem, chunkLength, chunkCount);
+                                PrepareResource(groupId, catalogItem, chunkLength, chunkCount);
                             }
                         }
                         finally
@@ -131,7 +131,7 @@ namespace Nexus.Writers
                             if (H5I.is_valid(groupId) > 0) { H5G.close(groupId); }
                         }
 
-                        this.PrepareAllTextEntries(textEntries);
+                        PrepareAllTextEntries(textEntries);
                     }
                 }
                 finally
@@ -145,7 +145,7 @@ namespace Nexus.Writers
                     {
                         H5F.close(_fileId);
 
-                        this.WritePreamble(filePath);
+                        WritePreamble(filePath);
                     }
                 }
 
@@ -180,7 +180,7 @@ namespace Nexus.Writers
                         for (int i = 0; i < writeRequests.Length; i++)
                         {
                             cancellationToken.ThrowIfCancellationRequested();
-                            this.WriteData(physicalId, offset, writeRequests[i]);
+                            WriteData(physicalId, offset, writeRequests[i]);
                         }
 
                         processed++;
@@ -251,8 +251,8 @@ namespace Nexus.Writers
                 if (chunkLength <= 0)
                     throw new Exception(ErrorMessage.Mat73Writer_SampleRateTooLow);
 
-                groupId = this.OpenOrCreateStruct(locationId, catalogItem.Resource.Id).GroupId;
-                datasetId = this.OpenOrCreateResource(groupId, $"dataset_{catalogItem.Representation.Id}", chunkLength, chunkCount).DatasetId;
+                groupId = OpenOrCreateStruct(locationId, catalogItem.Resource.Id).GroupId;
+                datasetId = OpenOrCreateResource(groupId, $"dataset_{catalogItem.Representation.Id}", chunkLength, chunkCount).DatasetId;
             }
             finally
             {
@@ -275,7 +275,7 @@ namespace Nexus.Writers
 
                 (datasetId, isNew) = IOHelper.OpenOrCreateDataset(locationId, name, H5T.NATIVE_DOUBLE, chunkLength, chunkCount, gcHandle_fillValue.AddrOfPinnedObject());
 
-                this.PrepareStringAttribute(datasetId, "MATLAB_class", this.GetMatTypeFromType(typeof(double)));
+                PrepareStringAttribute(datasetId, "MATLAB_class", GetMatTypeFromType(typeof(double)));
             }
             catch (Exception)
             {
@@ -301,7 +301,7 @@ namespace Nexus.Writers
             {
                 (groupId, isNew) = IOHelper.OpenOrCreateGroup(locationId, path);
 
-                this.PrepareStringAttribute(groupId, "MATLAB_class", "struct");
+                PrepareStringAttribute(groupId, "MATLAB_class", "struct");
             }
             catch (Exception)
             {
@@ -427,9 +427,9 @@ namespace Nexus.Writers
 
                 try
                 {
-                    (groupId, isNew) = this.OpenOrCreateStruct(_fileId, textEntry.Path);
-                    this.PrepareRefsCellString(textEntry, this.GetRefsName(index).ToString());
-                    this.PrepareTextEntryCellString(textEntry, this.GetRefsName(index).ToString());
+                    (groupId, isNew) = OpenOrCreateStruct(_fileId, textEntry.Path);
+                    PrepareRefsCellString(textEntry, GetRefsName(index).ToString());
+                    PrepareTextEntryCellString(textEntry, GetRefsName(index).ToString());
                 }
                 finally
                 {
@@ -484,8 +484,8 @@ namespace Nexus.Writers
                 if (isNew)
                     H5D.write(datasetId, H5T.NATIVE_UINT16, H5S.ALL, H5S.ALL, H5P.DEFAULT, gcHandle_data.AddrOfPinnedObject());
 
-                this.PrepareStringAttribute(datasetId, "MATLAB_class", this.GetMatTypeFromType(typeof(char)));
-                this.PrepareInt32Attribute(datasetId, "MATLAB_int_decode", 2);
+                PrepareStringAttribute(datasetId, "MATLAB_class", GetMatTypeFromType(typeof(char)));
+                PrepareInt32Attribute(datasetId, "MATLAB_int_decode", 2);
             }
             finally
             {
@@ -536,7 +536,7 @@ namespace Nexus.Writers
                     H5D.write(datasetId, H5T.STD_REF_OBJ, H5S.ALL, H5S.ALL, H5P.DEFAULT, objectReferencePointer);
                 }
 
-                this.PrepareStringAttribute(datasetId, "MATLAB_class", this.GetMatTypeFromType(typeof(string)));
+                PrepareStringAttribute(datasetId, "MATLAB_class", GetMatTypeFromType(typeof(string)));
             }
             finally
             {
@@ -564,14 +564,14 @@ namespace Nexus.Writers
 
         //        if (isNew)
         //        {
-        //            (datasetId, isNew) = IOHelper.OpenOrCreateDataset(groupId, this.GetRefsName(index).ToString(), H5T.NATIVE_UINT64, () =>
+        //            (datasetId, isNew) = IOHelper.OpenOrCreateDataset(groupId, GetRefsName(index).ToString(), H5T.NATIVE_UINT64, () =>
         //            {
         //                long dataspaceId = -1;
 
         //                try
         //                {
         //                    dataspaceId = H5S.create_simple(2, new ulong[] { 6, 1 }, null);
-        //                    datasetId = H5D.create(groupId, this.GetRefsName(index).ToString(), H5T.NATIVE_UINT64, dataspaceId);
+        //                    datasetId = H5D.create(groupId, GetRefsName(index).ToString(), H5T.NATIVE_UINT64, dataspaceId);
         //                }
         //                catch (Exception)
         //                {
@@ -626,8 +626,8 @@ namespace Nexus.Writers
         //            IOHelper.Write(datasetId, new UInt32[] { 0xDD000000, 0x02, 0x01, 0x01, index, 0x01 }, DataContainerType.Dataset);
         //        }
 
-        //        this.PrepareStringAttribute(datasetId, "MATLAB_class", this.GetMatTypeFromType(typeof(string)));
-        //        this.PrepareInt32Attribute(datasetId, "MATLAB_object_decode", 3);
+        //        PrepareStringAttribute(datasetId, "MATLAB_class", GetMatTypeFromType(typeof(string)));
+        //        PrepareInt32Attribute(datasetId, "MATLAB_object_decode", 3);
         //    }
         //    finally
         //    {
