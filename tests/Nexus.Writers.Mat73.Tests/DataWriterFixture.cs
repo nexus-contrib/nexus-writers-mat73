@@ -7,7 +7,7 @@ namespace Nexus.Writers.Tests
 {
     public class DataWriterFixture : IDisposable
     {
-        List<string> _targetFolders = new List<string>();
+        private readonly List<string> _targetFolders = new();
 
         public DataWriterFixture()
         {
@@ -67,6 +67,8 @@ namespace Nexus.Writers.Tests
                     //
                 }
             }
+
+            GC.SuppressFinalize(this);
         }
     }
 }

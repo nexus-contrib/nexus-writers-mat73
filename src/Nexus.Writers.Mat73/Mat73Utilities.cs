@@ -10,9 +10,7 @@ namespace Nexus.Writers
             List<int> codePoints;
 
             if (value == default)
-            {
-                throw new ArgumentNullException("str");
-            }
+                throw new ArgumentNullException(nameof(value));
 
             codePoints = new List<int>(value.Length);
 

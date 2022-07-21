@@ -24,7 +24,9 @@ namespace Nexus.Writers
     {
         #region "Fields"
 
-private const string DESCRIPTION = @"
+        private readonly int _Ga;
+
+        private const string DESCRIPTION = @"
 {
   ""label"": ""Matlab v7.3 (*.mat)""
 }
@@ -34,7 +36,7 @@ private const string DESCRIPTION = @"
 
         private long _fileId = -1;
         private TimeSpan _lastSamplePeriod;
-        private JsonSerializerOptions _serializerOptions;
+        private readonly JsonSerializerOptions _serializerOptions;
 
         #endregion
 
@@ -90,11 +92,11 @@ private const string DESCRIPTION = @"
                 try
                 {
                     propertyId = H5P.create(H5P.FILE_CREATE);
-                    H5P.set_userblock(propertyId, USERBLOCK_SIZE);
+                    _ = H5P.set_userblock(propertyId, USERBLOCK_SIZE);
                     _fileId = H5F.create(filePath, H5F.ACC_TRUNC, propertyId);
 
                     if (_fileId < 0)
-                        throw new Exception($"{ ErrorMessage.Mat73Writer_CouldNotOpenOrCreateFile } File: { filePath }.");
+                        throw new Exception($"{ErrorMessage.Mat73Writer_CouldNotOpenOrCreateFile} File: {filePath}.");
 
                     // file
                     var textEntries = new List<TextEntry>()
@@ -134,7 +136,7 @@ private const string DESCRIPTION = @"
                         }
                         finally
                         {
-                            if (H5I.is_valid(groupId) > 0) { H5G.close(groupId); }
+                            if (H5I.is_valid(groupId) > 0) { _ = H5G.close(groupId); }
                         }
 
                         PrepareAllTextEntries(textEntries);
@@ -142,21 +144,21 @@ private const string DESCRIPTION = @"
                 }
                 finally
                 {
-                    if (H5I.is_valid(propertyId) > 0) { H5P.close(propertyId); }
+                    if (H5I.is_valid(propertyId) > 0) { _ = H5P.close(propertyId); }
 
-                    H5F.flush(_fileId, H5F.scope_t.GLOBAL);
+                    _ = H5F.flush(_fileId, H5F.scope_t.GLOBAL);
 
                     // write preamble
                     if (H5I.is_valid(_fileId) > 0)
                     {
-                        H5F.close(_fileId);
+                        _ = H5F.close(_fileId);
 
                         WritePreamble(filePath);
                     }
                 }
 
                 _fileId = H5F.open(filePath, H5F.ACC_RDWR);
-            });
+            }, cancellationToken);
         }
 
         public Task WriteAsync(
@@ -195,14 +197,14 @@ private const string DESCRIPTION = @"
                 }
                 finally
                 {
-                    H5F.flush(_fileId, H5F.scope_t.GLOBAL);
+                    _ = H5F.flush(_fileId, H5F.scope_t.GLOBAL);
                 }
-            });
+            }, cancellationToken);
         }
 
         public Task CloseAsync(CancellationToken cancellationToken)
         {
-            if (H5I.is_valid(_fileId) > 0) { H5F.close(_fileId); }
+            if (H5I.is_valid(_fileId) > 0) { _ = H5F.close(_fileId); }
 
             return Task.CompletedTask;
         }
@@ -225,7 +227,7 @@ private const string DESCRIPTION = @"
                 dataspaceId_Buffer = H5S.create_simple(1, new ulong[] { length }, null);
 
                 // dataset
-                H5S.select_hyperslab(dataspaceId,
+                _ = H5S.select_hyperslab(dataspaceId,
                                     H5S.seloper_t.SET,
                                     new ulong[] { fileOffset },
                                     new ulong[] { 1 },
@@ -240,14 +242,14 @@ private const string DESCRIPTION = @"
             }
             finally
             {
-                if (H5I.is_valid(groupId) > 0) { H5G.close(groupId); }
-                if (H5I.is_valid(datasetId) > 0) { H5D.close(datasetId); }
-                if (H5I.is_valid(dataspaceId) > 0) { H5S.close(dataspaceId); }
-                if (H5I.is_valid(dataspaceId_Buffer) > 0) { H5S.close(dataspaceId_Buffer); }
+                if (H5I.is_valid(groupId) > 0) { _ = H5G.close(groupId); }
+                if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
+                if (H5I.is_valid(dataspaceId) > 0) { _ = H5S.close(dataspaceId); }
+                if (H5I.is_valid(dataspaceId_Buffer) > 0) { _ = H5S.close(dataspaceId_Buffer); }
             }
         }
 
-        private void PrepareResource(long locationId, CatalogItem catalogItem, ulong chunkLength, ulong chunkCount)
+        private static void PrepareResource(long locationId, CatalogItem catalogItem, ulong chunkLength, ulong chunkCount)
         {
             long groupId = -1;
             long datasetId = -1;
@@ -262,13 +264,13 @@ private const string DESCRIPTION = @"
             }
             finally
             {
-                if (H5I.is_valid(groupId) > 0) { H5G.close(groupId); }
-                if (H5I.is_valid(datasetId) > 0) { H5D.close(datasetId); }
+                if (H5I.is_valid(groupId) > 0) { _ = H5G.close(groupId); }
+                if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
             }
         }
 
         // low level
-        private (long DatasetId, bool IsNew) OpenOrCreateResource(long locationId, string name, ulong chunkLength, ulong chunkCount)
+        private static (long DatasetId, bool IsNew) OpenOrCreateResource(long locationId, string name, ulong chunkLength, ulong chunkCount)
         {
             long datasetId = -1;
             GCHandle gcHandle_fillValue = default;
@@ -285,8 +287,8 @@ private const string DESCRIPTION = @"
             }
             catch (Exception)
             {
-                if (H5I.is_valid(datasetId) > 0) { H5D.close(datasetId); }
-                
+                if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
+
                 throw;
             }
             finally
@@ -298,7 +300,7 @@ private const string DESCRIPTION = @"
             return (datasetId, isNew);
         }
 
-        private (long GroupId, bool IsNew) OpenOrCreateStruct(long locationId, string path)
+        private static (long GroupId, bool IsNew) OpenOrCreateStruct(long locationId, string path)
         {
             long groupId = -1;
             bool isNew;
@@ -311,15 +313,15 @@ private const string DESCRIPTION = @"
             }
             catch (Exception)
             {
-                if (H5I.is_valid(groupId) > 0) { H5G.close(groupId); }
-                
+                if (H5I.is_valid(groupId) > 0) { _ = H5G.close(groupId); }
+
                 throw;
             }
 
             return (groupId, isNew);
         }
 
-        private void PrepareStringAttribute(long locationId, string name, string value)
+        private static void PrepareStringAttribute(long locationId, string name, string value)
         {
             long typeId = -1;
             long attributeId = -1;
@@ -331,7 +333,7 @@ private const string DESCRIPTION = @"
                 var classNamePtr = Marshal.StringToHGlobalAnsi(value);
 
                 typeId = H5T.copy(H5T.C_S1);
-                H5T.set_size(typeId, new IntPtr(value.Length));
+                _ = H5T.set_size(typeId, new IntPtr(value.Length));
 
                 (attributeId, isNew) = IOHelper.OpenOrCreateAttribute(locationId, name, typeId, () =>
                 {
@@ -345,23 +347,23 @@ private const string DESCRIPTION = @"
                     }
                     finally
                     {
-                        if (H5I.is_valid(dataspaceId) > 0) { H5S.close(dataspaceId); }
+                        if (H5I.is_valid(dataspaceId) > 0) { _ = H5S.close(dataspaceId); }
                     }
 
                     return localAttributeId;
                 });
 
                 if (isNew)
-                    H5A.write(attributeId, typeId, classNamePtr);
+                    _ = H5A.write(attributeId, typeId, classNamePtr);
             }
             finally
             {
-                if (H5I.is_valid(typeId) > 0) { H5T.close(typeId); }
-                if (H5I.is_valid(attributeId) > 0) { H5A.close(attributeId); }
+                if (H5I.is_valid(typeId) > 0) { _ = H5T.close(typeId); }
+                if (H5I.is_valid(attributeId) > 0) { _ = H5A.close(attributeId); }
             }
         }
 
-        private void PrepareInt32Attribute(long locationId, string name, Int32 value)
+        private static void PrepareInt32Attribute(long locationId, string name, Int32 value)
         {
             long attributeId = -1;
             bool isNew;
@@ -371,15 +373,15 @@ private const string DESCRIPTION = @"
                 (attributeId, isNew) = IOHelper.OpenOrCreateAttribute(locationId, name, H5T.NATIVE_INT32, 1, new ulong[] { 1 });
 
                 if (isNew)
-                    IOHelper.Write(attributeId, new Int32[] { value }, DataContainerType.Attribute);
+                    IOHelper.Write(attributeId, new int[] { value }, DataContainerType.Attribute);
             }
             finally
             {
-                if (H5I.is_valid(attributeId) > 0) { H5A.close(attributeId); }
+                if (H5I.is_valid(attributeId) > 0) { _ = H5A.close(attributeId); }
             }
         }
 
-        private string GetMatTypeFromType(Type type)
+        private static string GetMatTypeFromType(Type type)
         {
             if (type == typeof(Double))
                 return "double";
@@ -393,22 +395,20 @@ private const string DESCRIPTION = @"
 
         // low level -> preamble
 
-        private void WritePreamble(string filePath)
+        private static void WritePreamble(string filePath)
         {
-            using (FileStream fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Write))
-            {
-                var streamData1 = Encoding.ASCII.GetBytes($"MATLAB 7.3 MAT-file, Platform: PCWIN64, Created on: { DateTime.Now.ToString("ddd MMM dd HH:mm:ss yyyy", CultureInfo.InvariantCulture) } HDF5 schema 1.00 .                     ");
-                var streamData2 = new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x49, 0x4D };
-                var streamData3 = new byte[512 - streamData1.Length - streamData2.Length];
+            using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Write);
+            var streamData1 = Encoding.ASCII.GetBytes($"MATLAB 7.3 MAT-file, Platform: PCWIN64, Created on: {DateTime.Now.ToString("ddd MMM dd HH:mm:ss yyyy", CultureInfo.InvariantCulture)} HDF5 schema 1.00 .                     ");
+            var streamData2 = new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x49, 0x4D };
+            var streamData3 = new byte[512 - streamData1.Length - streamData2.Length];
 
-                fileStream.Write(streamData1, 0, streamData1.Length);
-                fileStream.Write(streamData2, 0, streamData2.Length);
-                fileStream.Write(streamData3, 0, streamData3.Length);
-            }
+            fileStream.Write(streamData1, 0, streamData1.Length);
+            fileStream.Write(streamData2, 0, streamData2.Length);
+            fileStream.Write(streamData3, 0, streamData3.Length);
         }
 
         // low level -> string
-        private char GetRefsName(byte index)
+        private static char GetRefsName(byte index)
         {
             if (index < 26)
                 return (char)(index + 0x61);
@@ -439,7 +439,7 @@ private const string DESCRIPTION = @"
                 }
                 finally
                 {
-                    if (H5I.is_valid(groupId) > 0) { H5G.close(groupId); }
+                    if (H5I.is_valid(groupId) > 0) { _ = H5G.close(groupId); }
                 }
 
                 index++;
@@ -457,10 +457,10 @@ private const string DESCRIPTION = @"
 
             try
             {
-                var data = textEntry.Content.ToCodePoints().ToList().ConvertAll(value => (UInt16)value).ToArray();
+                var data = textEntry.Content.ToCodePoints().ToList().ConvertAll(value => (ulong)value).ToArray();
                 gcHandle_data = GCHandle.Alloc(data, GCHandleType.Pinned);
 
-                (datasetId, isNew) = IOHelper.OpenOrCreateDataset(_fileId, $"/#refs#/{ refsEntryName }", H5T.NATIVE_UINT16, () =>
+                (datasetId, isNew) = IOHelper.OpenOrCreateDataset(_fileId, $"/#refs#/{refsEntryName}", H5T.NATIVE_UINT16, () =>
                 {
                     long dataspaceId = -1;
                     long lcPropertyId = -1;
@@ -468,27 +468,27 @@ private const string DESCRIPTION = @"
                     try
                     {
                         lcPropertyId = H5P.create(H5P.LINK_CREATE);
-                        H5P.set_create_intermediate_group(lcPropertyId, 1);
-                        dataspaceId = H5S.create_simple(2, new UInt64[] { (UInt64)data.Length, 1 }, null);
-                        datasetId = H5D.create(_fileId, $"/#refs#/{ refsEntryName }", H5T.NATIVE_UINT16, dataspaceId, lcPropertyId, H5P.DEFAULT, H5P.DEFAULT);
+                        _ = H5P.set_create_intermediate_group(lcPropertyId, 1);
+                        dataspaceId = H5S.create_simple(2, new ulong[] { (ulong)data.Length, 1 }, null);
+                        datasetId = H5D.create(_fileId, $"/#refs#/{refsEntryName}", H5T.NATIVE_UINT16, dataspaceId, lcPropertyId, H5P.DEFAULT, H5P.DEFAULT);
                     }
                     catch
                     {
-                        if (H5I.is_valid(datasetId) > 0) { H5D.close(datasetId); }
-                        
+                        if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
+
                         throw;
                     }
                     finally
                     {
-                        if (H5I.is_valid(lcPropertyId) > 0) { H5P.close(lcPropertyId); }
-                        if (H5I.is_valid(dataspaceId) > 0) { H5S.close(dataspaceId); }
+                        if (H5I.is_valid(lcPropertyId) > 0) { _ = H5P.close(lcPropertyId); }
+                        if (H5I.is_valid(dataspaceId) > 0) { _ = H5S.close(dataspaceId); }
                     }
 
                     return datasetId;
                 });
 
                 if (isNew)
-                    H5D.write(datasetId, H5T.NATIVE_UINT16, H5S.ALL, H5S.ALL, H5P.DEFAULT, gcHandle_data.AddrOfPinnedObject());
+                    _ = H5D.write(datasetId, H5T.NATIVE_UINT16, H5S.ALL, H5S.ALL, H5P.DEFAULT, gcHandle_data.AddrOfPinnedObject());
 
                 PrepareStringAttribute(datasetId, "MATLAB_class", GetMatTypeFromType(typeof(char)));
                 PrepareInt32Attribute(datasetId, "MATLAB_int_decode", 2);
@@ -498,7 +498,7 @@ private const string DESCRIPTION = @"
                 if (gcHandle_data.IsAllocated)
                     gcHandle_data.Free();
 
-                if (H5I.is_valid(datasetId) > 0) { H5D.close(datasetId); }
+                if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
             }
         }
 
@@ -513,24 +513,24 @@ private const string DESCRIPTION = @"
             {
                 objectReferencePointer = Marshal.AllocHGlobal(8);
 
-                (datasetId, isNew) = IOHelper.OpenOrCreateDataset(_fileId, $"{ textEntry.Path }/{ textEntry.Name }", H5T.STD_REF_OBJ, () =>
+                (datasetId, isNew) = IOHelper.OpenOrCreateDataset(_fileId, $"{textEntry.Path}/{textEntry.Name}", H5T.STD_REF_OBJ, () =>
                 {
                     long dataspaceId = -1;
 
                     try
                     {
-                        dataspaceId = H5S.create_simple(2, new UInt64[] { 1, 1 }, null);
-                        datasetId = H5D.create(_fileId, $"{ textEntry.Path }/{ textEntry.Name }", H5T.STD_REF_OBJ, dataspaceId);
+                        dataspaceId = H5S.create_simple(2, new ulong[] { 1, 1 }, null);
+                        datasetId = H5D.create(_fileId, $"{textEntry.Path}/{textEntry.Name}", H5T.STD_REF_OBJ, dataspaceId);
                     }
                     catch
                     {
-                        if (H5I.is_valid(datasetId) > 0) { H5D.close(datasetId); }
-                        
+                        if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
+
                         throw;
                     }
                     finally
                     {
-                        if (H5I.is_valid(dataspaceId) > 0) { H5S.close(dataspaceId); }
+                        if (H5I.is_valid(dataspaceId) > 0) { _ = H5S.close(dataspaceId); }
                     }
 
                     return datasetId;
@@ -538,8 +538,8 @@ private const string DESCRIPTION = @"
 
                 if (isNew)
                 {
-                    H5R.create(objectReferencePointer, _fileId, $"/#refs#/{ refsEntryName }", H5R.type_t.OBJECT, -1);
-                    H5D.write(datasetId, H5T.STD_REF_OBJ, H5S.ALL, H5S.ALL, H5P.DEFAULT, objectReferencePointer);
+                    _ = H5R.create(objectReferencePointer, _fileId, $"/#refs#/{refsEntryName}", H5R.type_t.OBJECT, -1);
+                    _ = H5D.write(datasetId, H5T.STD_REF_OBJ, H5S.ALL, H5S.ALL, H5P.DEFAULT, objectReferencePointer);
                 }
 
                 PrepareStringAttribute(datasetId, "MATLAB_class", GetMatTypeFromType(typeof(string)));
@@ -549,7 +549,7 @@ private const string DESCRIPTION = @"
                 if (objectReferencePointer != IntPtr.Zero)
                     Marshal.FreeHGlobal(objectReferencePointer);
 
-                if (H5I.is_valid(datasetId) > 0) { H5D.close(datasetId); }
+                if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
             }
         }
 

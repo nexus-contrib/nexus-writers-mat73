@@ -61,11 +61,11 @@ namespace Nexus.Writers
             var comboCount = (int)Math.Pow(2, list.Count) - 1;
             var result = new List<List<T>>();
 
-            for (int i = 1; i < comboCount + 1; i++)
+            for (var i = 1; i < comboCount + 1; i++)
             {
                 result.Add(new List<T>());
 
-                for (int j = 0; j < list.Count; j++)
+                for (var j = 0; j < list.Count; j++)
                 {
                     if ((i >> j) % 2 != 0)
                         result.Last().Add(list[j]);

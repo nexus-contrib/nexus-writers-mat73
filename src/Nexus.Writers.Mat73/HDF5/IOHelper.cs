@@ -41,16 +41,16 @@ namespace Nexus.Writers
                     if (!isNew && callerMemberName != nameof(IOHelper.PrepareAttribute))
                         oldValueSetCount = IOHelper.PrepareAttributeValueSet(attributeId, ref valueSet, false);
                     else
-                        oldValueSetCount = new ulong[1] { (ulong)valueSet.Count() };
+                        oldValueSetCount = new ulong[1] { (ulong)valueSet.Length };
 
-                    if (valueSet.Count() == (int)oldValueSetCount[0])
+                    if (valueSet.Length == (int)oldValueSetCount[0])
                     {
                         IOHelper.Write(attributeId, valueSet, DataContainerType.Attribute);
                     }
                     else
                     {
-                        H5A.close(attributeId);
-                        H5A.delete(locationId, name);
+                        _ = H5A.close(attributeId);
+                        _ = H5A.delete(locationId, name);
 
                         IOHelper.PrepareAttribute(locationId, name, valueSet, dimensionLimitSet, true);
                     }
@@ -58,9 +58,9 @@ namespace Nexus.Writers
             }
             finally
             {
-                if (H5I.is_valid(attributeId) > 0) { H5A.close(attributeId); }
-                if (H5I.is_valid(typeId) > 0) { H5T.close(typeId); }
-                if (H5I.is_valid(fileId) > 0) { H5F.close(fileId); }
+                if (H5I.is_valid(attributeId) > 0) { _ = H5A.close(attributeId); }
+                if (H5I.is_valid(typeId) > 0) { _ = H5T.close(typeId); }
+                if (H5I.is_valid(fileId) > 0) { _ = H5F.close(fileId); }
             }
         }
 
@@ -94,8 +94,8 @@ namespace Nexus.Writers
             }
             finally
             {
-                if (H5I.is_valid(dataspaceId) > 0) { H5S.close(dataspaceId); }
-                if (H5I.is_valid(datasetId) > 0) { H5D.close(datasetId); }
+                if (H5I.is_valid(dataspaceId) > 0) { _ = H5S.close(dataspaceId); }
+                if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
             }
 
             return result;
@@ -109,8 +109,8 @@ namespace Nexus.Writers
 
             long elementCount;
 
-            int elementTypeSize = 0;
-            int byteLength = 0;
+            var elementTypeSize = 0;
+            var byteLength = 0;
 
             var bufferPtr = IntPtr.Zero;
             var elementType = typeof(T);
@@ -170,7 +170,7 @@ namespace Nexus.Writers
 
                         if (H5D.read(dataPortId, typeId, dataspaceId_buffer, dataspaceId_file, H5P.DEFAULT, bufferPtr) < 0)
                             throw new Exception(ErrorMessage.IOHelper_CouldNotReadDataset);
- 
+
                         break;
 
                     default:
@@ -204,10 +204,10 @@ namespace Nexus.Writers
 
                     returnValue = intPtrSet.Select(x =>
                     {
-                        // keep this, otherwise °C gets read-in wrongly on Linux 
+                        // keep this, otherwise Â°C gets read-in wrongly on Linux 
                         // (https://docs.microsoft.com/en-us/dotnet/api/system.runtime.interopservices.marshal.ptrtostringansi?view=net-5.0)
-                        string result = IOHelper.PtrToStringAnsiWithEncoding(x, Encoding.GetEncoding(1252));
-                        H5.free_memory(x);
+                        var result = IOHelper.PtrToStringAnsiWithEncoding(x, Encoding.GetEncoding(1252));
+                        _ = H5.free_memory(x);
                         return result;
                     }).Cast<T>().ToArray();
                 }
@@ -236,9 +236,9 @@ namespace Nexus.Writers
             {
                 Marshal.FreeHGlobal(bufferPtr);
 
-                if (H5I.is_valid(typeId) > 0) { H5T.close(typeId); }
-                if (H5I.is_valid(dataspaceId_buffer) > 0) { H5S.close(dataspaceId_buffer); }
-                if (H5I.is_valid(dataspaceId) > 0) { H5S.close(dataspaceId); }
+                if (H5I.is_valid(typeId) > 0) { _ = H5T.close(typeId); }
+                if (H5I.is_valid(dataspaceId_buffer) > 0) { _ = H5S.close(dataspaceId_buffer); }
+                if (H5I.is_valid(dataspaceId) > 0) { _ = H5S.close(dataspaceId); }
             }
 
             return returnValue;
@@ -255,7 +255,7 @@ namespace Nexus.Writers
             }
             finally
             {
-                if (H5I.is_valid(datasetId) > 0) { H5D.close(datasetId); }
+                if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
             }
         }
 
@@ -288,7 +288,7 @@ namespace Nexus.Writers
                 else
                     elementTypeSize = Marshal.SizeOf(elementType);
 
-                byteLength = elementTypeSize * valueSet.Count();
+                byteLength = elementTypeSize * valueSet.Length;
 
                 if (elementType.IsPrimitive)
                 {
@@ -297,29 +297,23 @@ namespace Nexus.Writers
                 }
                 else if (elementType == typeof(string))
                 {
-                    IntPtr[] intPtrSet = valueSet.Cast<string>().Select(x => Marshal.StringToHGlobalAnsi(x)).ToArray(); // utf8 ?
+                    var intPtrSet = valueSet.Cast<string>().Select(x => Marshal.StringToHGlobalAnsi(x)).ToArray(); // utf8 ?
 
                     valueSetPointer = Marshal.AllocHGlobal(byteLength);
-                    Marshal.Copy(intPtrSet, 0, valueSetPointer, intPtrSet.Count());
+                    Marshal.Copy(intPtrSet, 0, valueSetPointer, intPtrSet.Length);
                 }
                 else if (elementType.IsValueType && !elementType.IsPrimitive && !elementType.IsEnum)
                 {
-                    IntPtr sourcePtr;
-                    int counter;
-
-                    counter = 0;
+                    var counter = 0;
                     valueSetPointer = Marshal.AllocHGlobal(byteLength);
 
                     valueSet.Cast<ValueType>().ToList().ForEach(x =>
                     {
-                        Span<byte> source;
-                        Span<byte> target;
-
-                        sourcePtr = Marshal.AllocHGlobal(elementTypeSize);
+                        var sourcePtr = Marshal.AllocHGlobal(elementTypeSize);
                         Marshal.StructureToPtr(x, sourcePtr, false);
 
-                        source = new Span<byte>(sourcePtr.ToPointer(), Marshal.SizeOf<T>());
-                        target = new Span<byte>(IntPtr.Add(valueSetPointer, elementTypeSize * counter).ToPointer(), Marshal.SizeOf<T>());
+                        var source = new Span<byte>(sourcePtr.ToPointer(), Marshal.SizeOf<T>());
+                        var target = new Span<byte>(IntPtr.Add(valueSetPointer, elementTypeSize * counter).ToPointer(), Marshal.SizeOf<T>());
 
                         source.CopyTo(target);
 
@@ -359,46 +353,41 @@ namespace Nexus.Writers
                 else
                     Marshal.FreeHGlobal(valueSetPointer);
 
-                if (H5I.is_valid(typeId) > 0) { H5T.close(typeId); }
+                if (H5I.is_valid(typeId) > 0) { _ = H5T.close(typeId); }
             }
         }
 
         public static ulong[] PrepareAttributeValueSet<T>(long attributeId, ref T[] valueSet, bool isReference)
         {
             long dataspaceId = -1;
-
-            ulong[] dimensionSet;
-            ulong[] dimensionLimitSet;
-
-            dimensionSet = new ulong[] { 0 };
-            dimensionLimitSet = new ulong[] { 0 };
+            var dimensionLimitSet = new ulong[] { 0 };
 
             try
             {
                 dataspaceId = H5A.get_space(attributeId);
 
-                H5S.get_simple_extent_dims(dataspaceId, null, dimensionLimitSet);
+                _ = H5S.get_simple_extent_dims(dataspaceId, null, dimensionLimitSet);
 
                 // merge data
                 if (dimensionLimitSet[0] == H5S.UNLIMITED)
                 {
-                    T[] valueSet_File = IOHelper.Read<T>(attributeId, DataContainerType.Attribute);
+                    var valueSet_File = IOHelper.Read<T>(attributeId, DataContainerType.Attribute);
 
                     if (isReference)
                     {
-                        if (valueSet_File.Count() == 0 || !Enumerable.SequenceEqual(valueSet_File, valueSet.Skip(Math.Max(0, valueSet.Count() - valueSet_File.Count()))))
+                        if (valueSet_File.Length == 0 || !Enumerable.SequenceEqual(valueSet_File, valueSet.Skip(Math.Max(0, valueSet.Length - valueSet_File.Length))))
                             valueSet = valueSet.Concat(valueSet_File).ToArray();
                     }
                     else
                     {
-                        if (valueSet.Count() == 0 || !Enumerable.SequenceEqual(valueSet, valueSet_File.Skip(Math.Max(0, valueSet_File.Count() - valueSet.Count()))))
+                        if (valueSet.Length == 0 || !Enumerable.SequenceEqual(valueSet, valueSet_File.Skip(Math.Max(0, valueSet_File.Length - valueSet.Length))))
                             valueSet = valueSet_File.Concat(valueSet).ToArray();
                     }
                 }
             }
             finally
             {
-                if (H5I.is_valid(dataspaceId) > 0) { H5S.close(dataspaceId); }
+                if (H5I.is_valid(dataspaceId) > 0) { _ = H5S.close(dataspaceId); }
             }
 
             return dimensionLimitSet;
@@ -423,7 +412,7 @@ namespace Nexus.Writers
                 }
                 finally
                 {
-                    if (H5I.is_valid(dataspaceId) > 0) { H5S.close(dataspaceId); }
+                    if (H5I.is_valid(dataspaceId) > 0) { _ = H5S.close(dataspaceId); }
                 }
 
                 return attributeId;
@@ -446,7 +435,7 @@ namespace Nexus.Writers
 
                     if (H5T.equal(attributeTypeId_actual, attributeTypeId) <= 0)
                     {
-                        throw new Exception($"{ ErrorMessage.IOHelper_DataTypeMismatch } Attribute: '{ name }'.");
+                        throw new Exception($"{ErrorMessage.IOHelper_DataTypeMismatch} Attribute: '{name}'.");
                     }
 
                     isNew = false;
@@ -460,12 +449,12 @@ namespace Nexus.Writers
 
                 if (H5I.is_valid(attributeId) <= 0)
                 {
-                    throw new Exception($"{ ErrorMessage.IOHelper_CouldNotOpenOrCreateAttribute } Attribute: '{ name }'.");
+                    throw new Exception($"{ErrorMessage.IOHelper_CouldNotOpenOrCreateAttribute} Attribute: '{name}'.");
                 }
             }
             finally
             {
-                if (H5I.is_valid(attributeTypeId_actual) > 0) { H5T.close(attributeTypeId_actual); }
+                if (H5I.is_valid(attributeTypeId_actual) > 0) { _ = H5T.close(attributeTypeId_actual); }
             }
 
             return (attributeId, isNew);
@@ -486,29 +475,29 @@ namespace Nexus.Writers
 
                     if (fillValue != IntPtr.Zero)
                     {
-                        H5P.set_fill_value(dcPropertyId, datasetTypeId, fillValue);
+                        _ = H5P.set_fill_value(dcPropertyId, datasetTypeId, fillValue);
                     }
 
-                    H5P.set_shuffle(dcPropertyId);
-                    H5P.set_deflate(dcPropertyId, 7);
-                    H5P.set_chunk(dcPropertyId, 1, new ulong[] { chunkLength });
+                    _ = H5P.set_shuffle(dcPropertyId);
+                    _ = H5P.set_deflate(dcPropertyId, 7);
+                    _ = H5P.set_chunk(dcPropertyId, 1, new ulong[] { chunkLength });
 
                     lcPropertyId = H5P.create(H5P.LINK_CREATE);
-                    H5P.set_create_intermediate_group(lcPropertyId, 1);
+                    _ = H5P.set_create_intermediate_group(lcPropertyId, 1);
 
                     dataspaceId = H5S.create_simple(1, new ulong[] { chunkLength * chunkCount }, null);
                     datasetId = H5D.create(locationId, datasetPath, datasetTypeId, dataspaceId, lcPropertyId, dcPropertyId);
 
                     if (H5I.is_valid(datasetId) <= 0)
                     {
-                        throw new Exception($"{ ErrorMessage.IOHelper_CouldNotOpenOrCreateDataset } Dataset: '{ datasetPath }'.");
+                        throw new Exception($"{ErrorMessage.IOHelper_CouldNotOpenOrCreateDataset} Dataset: '{datasetPath}'.");
                     }
                 }
                 finally
                 {
-                    if (H5I.is_valid(dcPropertyId) > 0) { H5P.close(dcPropertyId); }
-                    if (H5I.is_valid(lcPropertyId) > 0) { H5P.close(lcPropertyId); }
-                    if (H5I.is_valid(dataspaceId) > 0) { H5S.close(dataspaceId); }
+                    if (H5I.is_valid(dcPropertyId) > 0) { _ = H5P.close(dcPropertyId); }
+                    if (H5I.is_valid(lcPropertyId) > 0) { _ = H5P.close(lcPropertyId); }
+                    if (H5I.is_valid(dataspaceId) > 0) { _ = H5S.close(dataspaceId); }
                 }
 
                 return datasetId;
@@ -524,14 +513,14 @@ namespace Nexus.Writers
 
             try
             {
-                if (IOHelper.CheckLinkExists(locationId, datasetPath))
+                if (CheckLinkExists(locationId, datasetPath))
                 {
                     datasetId = H5D.open(locationId, datasetPath);
                     datasetTypeId_actual = H5D.get_type(datasetId);
 
                     if (H5T.equal(datasetTypeId_actual, datasetTypeId) <= 0)
                     {
-                        throw new Exception($"{ ErrorMessage.IOHelper_DataTypeMismatch } Dataset: '{ datasetPath }'.");
+                        throw new Exception($"{ErrorMessage.IOHelper_DataTypeMismatch} Dataset: '{datasetPath}'.");
                     }
 
                     isNew = false;
@@ -545,12 +534,12 @@ namespace Nexus.Writers
 
                 if (H5I.is_valid(datasetId) <= 0)
                 {
-                    throw new Exception($"{ ErrorMessage.IOHelper_CouldNotOpenOrCreateDataset } Dataset: '{ datasetPath }'.");
+                    throw new Exception($"{ErrorMessage.IOHelper_CouldNotOpenOrCreateDataset} Dataset: '{datasetPath}'.");
                 }
             }
             finally
             {
-                if (H5I.is_valid(datasetTypeId_actual) > 0) { H5T.close(datasetTypeId_actual); }
+                if (H5I.is_valid(datasetTypeId_actual) > 0) { _ = H5T.close(datasetTypeId_actual); }
             }
 
             return (datasetId, isNew);
@@ -573,19 +562,19 @@ namespace Nexus.Writers
                 else
                 {
                     propertyId = H5P.create(H5P.LINK_CREATE);
-                    H5P.set_create_intermediate_group(propertyId, 1);
+                    _ = H5P.set_create_intermediate_group(propertyId, 1);
                     groupId = H5G.create(locationId, groupPath, propertyId);
                     isNew = true;
                 }
 
                 if (H5I.is_valid(groupId) <= 0)
                 {
-                    throw new Exception($"{ ErrorMessage.IOHelper_CouldNotOpenOrCreateGroup } Group name: '{ groupPath }'.");
+                    throw new Exception($"{ErrorMessage.IOHelper_CouldNotOpenOrCreateGroup} Group name: '{groupPath}'.");
                 }
             }
             finally
             {
-                if (H5I.is_valid(propertyId) > 0) { H5P.close(propertyId); }
+                if (H5I.is_valid(propertyId) > 0) { _ = H5P.close(propertyId); }
             }
 
             return (groupId, isNew);
@@ -599,9 +588,9 @@ namespace Nexus.Writers
             currentPath = ".";
             path_splitted = path.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
 
-            for (int i = 0; i < path_splitted.Count(); i++)
+            for (var i = 0; i < path_splitted.Length; i++)
             {
-                currentPath = $"{ currentPath }/{ path_splitted[i] }";
+                currentPath = $"{currentPath}/{path_splitted[i]}";
 
                 if (H5L.exists(locationId, currentPath) == 0)
                 {

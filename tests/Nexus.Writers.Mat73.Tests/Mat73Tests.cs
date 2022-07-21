@@ -3,7 +3,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Nexus.DataModel;
 using Nexus.Extensibility;
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -14,7 +13,7 @@ namespace Nexus.Writers.Tests
 {
     public class Mat73Tests : IClassFixture<DataWriterFixture>
     {
-        private DataWriterFixture _fixture;
+        private readonly DataWriterFixture _fixture;
 
         public Mat73Tests(DataWriterFixture fixture)
         {
