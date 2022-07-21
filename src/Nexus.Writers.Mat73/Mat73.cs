@@ -15,7 +15,7 @@ using System.Threading.Tasks;
 
 namespace Nexus.Writers
 {
-    [DataWriterFormatName("Matlab v7.3 (*.mat)")]
+    [DataWriterDescription(DESCRIPTION)]
     [ExtensionDescription(
         "Store data in Matlab's hierachical data format (v7.3).",
         "https://github.com/Apollo3zehn/nexus-writers-mat73",
@@ -23,6 +23,12 @@ namespace Nexus.Writers
     public class Mat73 : IDataWriter
     {
         #region "Fields"
+
+private const string DESCRIPTION = @"
+{
+  ""label"": ""Matlab v7.3 (*.mat)"",
+}
+        ";
 
         private const ulong USERBLOCK_SIZE = 512;
 
