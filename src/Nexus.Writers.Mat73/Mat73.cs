@@ -24,8 +24,6 @@ namespace Nexus.Writers
     {
         #region "Fields"
 
-        private readonly int _Ga;
-
         private const string DESCRIPTION = @"
 {
   ""label"": ""Matlab v7.3 (*.mat)""
