@@ -26,7 +26,7 @@ namespace Nexus.Writers
 
 private const string DESCRIPTION = @"
 {
-  ""label"": ""Matlab v7.3 (*.mat)"",
+  ""label"": ""Matlab v7.3 (*.mat)""
 }
         ";
 
