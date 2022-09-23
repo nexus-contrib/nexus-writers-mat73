@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-
-namespace Nexus.Writers
+﻿namespace Nexus.Writers
 {
     public static class Mat73Utilities
     {

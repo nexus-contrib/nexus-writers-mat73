@@ -1,5 +1,4 @@
 ﻿using HDF.PInvoke;
-using System;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
