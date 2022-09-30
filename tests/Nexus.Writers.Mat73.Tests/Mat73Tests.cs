@@ -91,6 +91,20 @@ namespace Nexus.Writers.Tests
             //AssertProperties(_fixture.Catalogs[0].Resources[0].Properties, catalog1.Resources[0].Properties);
             //AssertProperties(_fixture.Catalogs[0].Resources[0].Properties, catalog1.Resources[1].Properties);
 
+            var actualData0 = catalog1
+                .Group("resource1")
+                .Dataset("dataset_1_s")
+                .Read<double>();
+
+            Assert.True(data[0].Concat(data[0]).SequenceEqual(actualData0));
+
+            var actualData1 = catalog1
+                .Group("resource1")
+                .Dataset("dataset_2_s")
+                .Read<double>();
+
+            Assert.True(data[1].Concat(data[1]).SequenceEqual(actualData1));
+
             // catalog 2
             var catalog2 = h5File.Group("D_E_F");
             var resources2 = _fixture.Catalogs[0].Resources;
@@ -100,6 +114,13 @@ namespace Nexus.Writers.Tests
             // implement when HDF5.NET is able to read any struct easily
             //AssertProperties(_fixture.Catalogs[1].Properties, catalog2.Properties);
             //AssertProperties(_fixture.Catalogs[1].Resources[0].Properties, catalog2.Resources[0].Properties);
+
+            var actualData2 = catalog2
+                .Group("resource3")
+                .Dataset("dataset_1_s")
+                .Read<double>();
+
+            Assert.True(data[2].Concat(data[2]).SequenceEqual(actualData2));
 
             //void AssertProperties(IReadOnlyDictionary<string, string> expected, List<xxx> actual)
             //{
