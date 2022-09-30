@@ -93,8 +93,7 @@ namespace Nexus.Writers
                     // file
                     var textEntries = new List<TextEntry>()
                     {
-                        new TextEntry("/properties", "system_name", "Nexus"),
-                        new TextEntry("/properties", "date_time", fileBegin.ToString("yyyy-MM-ddTHH-mm-ss") + "Z"),
+                        new TextEntry("/properties", "date_time", fileBegin.ToString("yyyy-MM-ddTHH-mm-ssZ")),
                         new TextEntry("/properties", "sample_period", samplePeriod.ToUnitString())
                     };
 
