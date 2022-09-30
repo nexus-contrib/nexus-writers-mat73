@@ -20,16 +20,4 @@
     <ProjectReference Include="..\..\src\Nexus.Writers.Mat73\Nexus.Writers.Mat73.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Update="Database\group-A\2015-12\000__0_2015-12-10_00-10-00_000000.dat">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Database\config.json">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Database\group-A\2015-12\000__0_2015-12-10_00-00-00_000000.dat">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
 </Project>
