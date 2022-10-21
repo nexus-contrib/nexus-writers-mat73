@@ -105,10 +105,10 @@ namespace Nexus.Writers
                         var catalog = catalogItemGroup.Key;
                         var physicalId = catalog.Id.TrimStart('/').Replace('/', '_');
 
-                        if (catalog.Properties.HasValue)
+                        if (catalog.Properties is not null)
                         {
                             var key = "properties";
-                            var value = JsonSerializer.Serialize(catalog.Properties.Value, _serializerOptions);
+                            var value = JsonSerializer.Serialize(catalog.Properties, _serializerOptions);
                             textEntries.Add(new TextEntry($"/{physicalId}", key, value));
                         }
 
