@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using Nexus.DataModel;
 using Nexus.Extensibility;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -212,7 +213,7 @@ namespace Nexus.Writers
                 var length = (ulong)writeRequest.Data.Length;
                 groupId = H5G.open(_fileId, $"/{catalogPhysicalId}/{writeRequest.CatalogItem.Resource.Id}");
 
-                var datasetName = $"dataset_{writeRequest.CatalogItem.Representation.Id}";
+                var datasetName = $"dataset_{writeRequest.CatalogItem.Representation.Id}{GetRepresentationParameterString(writeRequest.CatalogItem.Parameters)}";
                 datasetId = H5D.open(groupId, datasetName);
                 dataspaceId = H5D.get_space(datasetId);
                 dataspaceId_Buffer = H5S.create_simple(1, new ulong[] { length }, null);
@@ -251,7 +252,7 @@ namespace Nexus.Writers
                     throw new Exception(ErrorMessage.Mat73Writer_SampleRateTooLow);
 
                 groupId = OpenOrCreateStruct(locationId, catalogItem.Resource.Id).GroupId;
-                datasetId = OpenOrCreateResource(groupId, $"dataset_{catalogItem.Representation.Id}", chunkLength, chunkCount).DatasetId;
+                datasetId = OpenOrCreateResource(groupId, $"dataset_{catalogItem.Representation.Id}{GetRepresentationParameterString(catalogItem.Parameters)}", chunkLength, chunkCount).DatasetId;
             }
             finally
             {
@@ -631,6 +632,36 @@ namespace Nexus.Writers
         //        if (H5I.is_valid(datasetId) > 0) { H5D.close(datasetId); }
         //    }
         //}
+
+        private static string? GetRepresentationParameterString(IReadOnlyDictionary<string, string>? parameters)
+        {
+            if (parameters is null)
+                return default;
+            
+            
+
+            var serializedParameters = parameters
+                .Select(parameter => 
+                {
+                    if (!TryEnforceNamingConvention(parameter.Value, out var newValue))
+                        throw new Exception("Unable to ensure valid variable name.");
+
+                    return $"{parameter.Key}_{newValue}";
+                });
+
+            var parametersString = $"_{string.Join('_', serializedParameters)}";
+
+            return parametersString;
+        }
+
+        private static bool TryEnforceNamingConvention(string parameterName, [NotNullWhen(returnValue: true)] out string newParameterName)
+        {
+            newParameterName = parameterName;
+            newParameterName = Resource.InvalidIdCharsExpression.Replace(newParameterName, "");
+            newParameterName = Resource.InvalidIdStartCharsExpression.Replace(newParameterName, "");
+
+            return Resource.ValidIdExpression.IsMatch(newParameterName);
+        }
 
         #endregion
     }
