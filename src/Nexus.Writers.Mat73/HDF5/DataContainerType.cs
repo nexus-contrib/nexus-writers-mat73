@@ -1,8 +1,7 @@
-﻿namespace Nexus.Writers
+﻿namespace Nexus.Writers;
+
+public enum DataContainerType
 {
-    public enum DataContainerType
-    {
-        Dataset = 0,
-        Attribute = 1
-    }
+    Dataset = 0,
+    Attribute = 1
 }
