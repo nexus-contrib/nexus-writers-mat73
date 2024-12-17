@@ -352,7 +352,7 @@ public class Mat73 : IDataWriter
             (attributeId, isNew) = IOHelper.OpenOrCreateAttribute(locationId, name, H5T.NATIVE_INT32, 1, [1]);
 
             if (isNew)
-                IOHelper.Write(attributeId, new int[] { value }, DataContainerType.Attribute);
+                IOHelper.Write(attributeId, [value], DataContainerType.Attribute);
         }
         finally
         {

@@ -67,7 +67,7 @@ public class Mat73Tests(DataWriterFixture fixture) : IClassFixture<DataWriterFix
             .ToArray();
 
         // assert
-        Assert.Equal(1, actualFilePaths.Length);
+        Assert.Single(actualFilePaths);
 
         using var h5File = H5File.OpenRead(actualFilePaths.First());
 

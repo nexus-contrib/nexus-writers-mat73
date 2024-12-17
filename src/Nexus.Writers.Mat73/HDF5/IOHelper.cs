@@ -578,7 +578,7 @@ public static class IOHelper
         return (groupId, isNew);
     }
 
-    private static readonly char[] separator = new char[] { '/' };
+    private static readonly char[] separator = ['/'];
 
     public static bool CheckLinkExists(long locationId, string path)
     {
