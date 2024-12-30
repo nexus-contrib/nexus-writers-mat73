@@ -257,7 +257,7 @@ public class Mat73 : IDataWriter
 
         try
         {
-            var fillValue = Double.NaN;
+            var fillValue = double.NaN;
             gcHandle_fillValue = GCHandle.Alloc(fillValue, GCHandleType.Pinned);
 
             (datasetId, isNew) = IOHelper.OpenOrCreateDataset(locationId, name, H5T.NATIVE_DOUBLE, chunkLength, chunkCount, gcHandle_fillValue.AddrOfPinnedObject());
@@ -362,7 +362,7 @@ public class Mat73 : IDataWriter
 
     private static string GetMatTypeFromType(Type type)
     {
-        if (type == typeof(Double))
+        if (type == typeof(double))
             return "double";
         else if (type == typeof(char))
             return "char";
@@ -436,7 +436,7 @@ public class Mat73 : IDataWriter
 
         try
         {
-            var data = textEntry.Content.ToCodePoints().ToList().ConvertAll(value => (ulong)value).ToArray();
+            var data = Encoding.Unicode.GetBytes(textEntry.Content);
             gcHandle_data = GCHandle.Alloc(data, GCHandleType.Pinned);
 
             (datasetId, isNew) = IOHelper.OpenOrCreateDataset(_fileId, $"/#refs#/{refsEntryName}", H5T.NATIVE_UINT16, () =>
@@ -448,7 +448,7 @@ public class Mat73 : IDataWriter
                 {
                     lcPropertyId = H5P.create(H5P.LINK_CREATE);
                     _ = H5P.set_create_intermediate_group(lcPropertyId, 1);
-                    dataspaceId = H5S.create_simple(2, [(ulong)data.Length, 1], null);
+                    dataspaceId = H5S.create_simple(2, [(ulong)(data.Length / 2), 1], null);
                     datasetId = H5D.create(_fileId, $"/#refs#/{refsEntryName}", H5T.NATIVE_UINT16, dataspaceId, lcPropertyId, H5P.DEFAULT, H5P.DEFAULT);
                 }
                 catch
