@@ -1,7 +1,9 @@
-﻿using HDF.PInvoke;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Nexus.DataModel;
 using Nexus.Extensibility;
+using PureHDF;
+using PureHDF.Filters;
+using PureHDF.Selections;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -9,6 +11,8 @@ using System.Text;
 using System.Text.Json;
 
 namespace Nexus.Writers;
+
+internal record TextEntry(H5Group Parent, string Key, string Value);
 
 [DataWriterDescription(DESCRIPTION)]
 [ExtensionDescription(
@@ -25,17 +29,25 @@ public class Mat73 : IDataWriter
 
     private const ulong USERBLOCK_SIZE = 512;
 
-    private long _fileId = -1;
-    private TimeSpan _lastSamplePeriod;
-    private readonly JsonSerializerOptions _serializerOptions;
-
-    public Mat73()
+    private static readonly JsonSerializerOptions _serializerOptions = new JsonSerializerOptions()
     {
-        _serializerOptions = new JsonSerializerOptions()
-        {
-            WriteIndented = true
-        };
-    }
+        WriteIndented = true
+    };
+
+    private static readonly H5WriteOptions _writeOptions = new H5WriteOptions(
+        UserBlockSize: USERBLOCK_SIZE,
+        Filters:
+        [
+            ShuffleFilter.Id,
+            DeflateFilter.Id
+        ]
+    );
+
+    private H5NativeWriter _writer = default!;
+
+    private Stream _fileStream = default!;
+
+    private TimeSpan _lastSamplePeriod;
 
     private DataWriterContext Context { get; set; } = default!;
 
@@ -66,77 +78,56 @@ public class Mat73 : IDataWriter
             if (File.Exists(filePath))
                 throw new Exception($"The file {filePath} already exists. Extending an already existing file with additional resources is not supported.");
 
-            long propertyId = -1;
+            var h5File = new H5File();
 
-            try
+            // file
+            var filePropertiesStruct = GetOrCreateMatStruct(h5File, "properties");
+            h5File["properties"] = filePropertiesStruct;
+
+            var textEntries = new List<TextEntry>()
             {
-                propertyId = H5P.create(H5P.FILE_CREATE);
-                _ = H5P.set_userblock(propertyId, USERBLOCK_SIZE);
-                _fileId = H5F.create(filePath, H5F.ACC_TRUNC, propertyId);
+                new(filePropertiesStruct, "date_time", fileBegin.ToString("yyyy-MM-ddTHH-mm-ssZ")),
+                new(filePropertiesStruct, "sample_period", samplePeriod.ToUnitString())
+            };
 
-                if (_fileId < 0)
-                    throw new Exception($"{ErrorMessage.Mat73Writer_CouldNotOpenOrCreateFile} File: {filePath}.");
-
-                // file
-                var textEntries = new List<TextEntry>()
-                {
-                    new("/properties", "date_time", fileBegin.ToString("yyyy-MM-ddTHH-mm-ssZ")),
-                    new("/properties", "sample_period", samplePeriod.ToUnitString())
-                };
-
-                foreach (var catalogItemGroup in catalogItems.GroupBy(catalogItem => catalogItem.Catalog.Id))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    // file -> catalog
-                    var catalogId = catalogItemGroup.Key;
-                    var physicalId = catalogId.TrimStart('/').Replace('/', '_');
-                    var catalog = catalogItemGroup.First().Catalog;
-
-                    if (catalog.Properties is not null)
-                    {
-                        var key = "properties";
-                        var value = JsonSerializer.Serialize(catalog.Properties, _serializerOptions);
-                        textEntries.Add(new TextEntry($"/{physicalId}", key, value));
-                    }
-
-                    long groupId = -1;
-
-                    try
-                    {
-                        groupId = OpenOrCreateStruct(_fileId, physicalId).GroupId;
-
-                        // file -> catalog -> resources
-                        foreach (var catalogItem in catalogItemGroup)
-                        {
-                            (var chunkLength, var chunkCount) = GeneralHelper.CalculateChunkParameters(totalLength);
-                            PrepareResource(groupId, catalogItem, chunkLength, chunkCount);
-                        }
-                    }
-                    finally
-                    {
-                        if (H5I.is_valid(groupId) > 0) { _ = H5G.close(groupId); }
-                    }
-
-                    PrepareAllTextEntries(textEntries);
-                }
-            }
-            finally
+            foreach (var catalogItemGroup in catalogItems.GroupBy(catalogItem => catalogItem.Catalog.Id))
             {
-                if (H5I.is_valid(propertyId) > 0) { _ = H5P.close(propertyId); }
+                cancellationToken.ThrowIfCancellationRequested();
 
-                _ = H5F.flush(_fileId, H5F.scope_t.GLOBAL);
+                // file -> catalog
+                var catalogId = catalogItemGroup.Key;
+                var physicalId = catalogId.TrimStart('/').Replace('/', '_');
+                var catalog = catalogItemGroup.First().Catalog;
 
-                // write preamble
-                if (H5I.is_valid(_fileId) > 0)
+                var catalogStruct = GetOrCreateMatStruct(h5File, physicalId);
+
+                if (catalog.Properties is not null)
                 {
-                    _ = H5F.close(_fileId);
-
-                    WritePreamble(filePath);
+                    var key = "properties";
+                    var value = JsonSerializer.Serialize(catalog.Properties, _serializerOptions);
+                    textEntries.Add(new TextEntry(catalogStruct, key, value));
                 }
+
+                // file -> catalog -> resources
+                foreach (var catalogItem in catalogItemGroup)
+                {
+                    (var chunkLength, var chunkCount) = Utils.CalculateChunkParameters(totalLength);
+                    PrepareResource(catalogStruct, catalogItem, chunkLength, chunkCount);
+                }
+
+                PrepareAllTextEntries(h5File, textEntries);
             }
 
-            _fileId = H5F.open(filePath, H5F.ACC_RDWR);
+            _fileStream = File.Open(
+                filePath,
+                FileMode.Create, 
+                FileAccess.ReadWrite, 
+                FileShare.Read
+            );
+
+            WritePreamble(_fileStream);
+            
+            _writer = h5File.BeginWrite(_fileStream, _writeOptions);
         }, cancellationToken);
     }
 
@@ -148,215 +139,111 @@ public class Mat73 : IDataWriter
     {
         return Task.Run(() =>
         {
-            try
+            var offset = (ulong)(fileOffset.Ticks / _lastSamplePeriod.Ticks);
+
+            var requestGroups = requests
+                .GroupBy(request => request.CatalogItem.Catalog.Id)
+                .ToList();
+
+            var processed = 0;
+
+            foreach (var requestGroup in requestGroups)
             {
-                var offset = (ulong)(fileOffset.Ticks / _lastSamplePeriod.Ticks);
+                var catalogId = requestGroup.Key;
+                var physicalId = catalogId.TrimStart('/').Replace('/', '_');
+                var writeRequests = requestGroup.ToArray();
 
-                var requestGroups = requests
-                    .GroupBy(request => request.CatalogItem.Catalog.Id)
-                    .ToList();
-
-                var processed = 0;
-
-                foreach (var requestGroup in requestGroups)
+                for (int i = 0; i < writeRequests.Length; i++)
                 {
-                    var catalogId = requestGroup.Key;
-                    var physicalId = catalogId.TrimStart('/').Replace('/', '_');
-                    var writeRequests = requestGroup.ToArray();
-
-                    for (int i = 0; i < writeRequests.Length; i++)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        WriteData(physicalId, offset, writeRequests[i]);
-                    }
-
-                    processed++;
-                    progress.Report((double)processed / requests.Length);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    WriteData(_writer, physicalId, offset, writeRequests[i]);
                 }
-            }
-            finally
-            {
-                _ = H5F.flush(_fileId, H5F.scope_t.GLOBAL);
+
+                processed++;
+                progress.Report((double)processed / requests.Length);
             }
         }, cancellationToken);
     }
 
-    public Task CloseAsync(CancellationToken cancellationToken)
+    public async Task CloseAsync(CancellationToken cancellationToken)
     {
-        if (H5I.is_valid(_fileId) > 0) { _ = H5F.close(_fileId); }
+        _writer?.Dispose();
 
-        return Task.CompletedTask;
+        if (_fileStream is not null)
+            await _fileStream.DisposeAsync();
     }
 
-    private unsafe void WriteData(string catalogPhysicalId, ulong fileOffset, WriteRequest writeRequest)
+    private static void WriteData(H5NativeWriter writer, string physicalCatalogId, ulong fileOffset, WriteRequest writeRequest)
     {
-        long groupId = -1;
-        long datasetId = -1;
-        long dataspaceId = -1;
-        long dataspaceId_Buffer = -1;
+        var length = (ulong)writeRequest.Data.Length;
+        var catalogGroup = (H5Group)writer.File[physicalCatalogId];
+        var resourceGroup = (H5Group)catalogGroup[writeRequest.CatalogItem.Resource.Id];
+        var datasetName = $"dataset_{writeRequest.CatalogItem.Representation.Id}{GetRepresentationParameterString(writeRequest.CatalogItem.Parameters)}";
+        var dataset = (H5Dataset<Memory<double>>)resourceGroup[datasetName];
+        var selection = new HyperslabSelection(fileOffset, length);
 
-        try
-        {
-            var length = (ulong)writeRequest.Data.Length;
-            groupId = H5G.open(_fileId, $"/{catalogPhysicalId}/{writeRequest.CatalogItem.Resource.Id}");
-
-            var datasetName = $"dataset_{writeRequest.CatalogItem.Representation.Id}{GetRepresentationParameterString(writeRequest.CatalogItem.Parameters)}";
-            datasetId = H5D.open(groupId, datasetName);
-            dataspaceId = H5D.get_space(datasetId);
-            dataspaceId_Buffer = H5S.create_simple(1, [length], null);
-
-            // dataset
-            _ = H5S.select_hyperslab(dataspaceId,
-                                H5S.seloper_t.SET,
-                                [fileOffset],
-                                [1],
-                                [1],
-                                [length]);
-
-            fixed (byte* bufferPtr = MemoryMarshal.AsBytes(writeRequest.Data.Span))
-            {
-                if (H5D.write(datasetId, H5T.NATIVE_DOUBLE, dataspaceId_Buffer, dataspaceId, H5P.DEFAULT, new IntPtr(bufferPtr)) < 0)
-                    throw new Exception(ErrorMessage.Mat73Writer_CouldNotWriteChunk_Dataset);
-            }
-        }
-        finally
-        {
-            if (H5I.is_valid(groupId) > 0) { _ = H5G.close(groupId); }
-            if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
-            if (H5I.is_valid(dataspaceId) > 0) { _ = H5S.close(dataspaceId); }
-            if (H5I.is_valid(dataspaceId_Buffer) > 0) { _ = H5S.close(dataspaceId_Buffer); }
-        }
+        writer.Write(
+            dataset: dataset,
+            data: MemoryMarshal.AsMemory(writeRequest.Data) /* PureHDF does not yet support ReadOnlyMemory (v2.1.1) */,
+            fileSelection: selection);
     }
 
-    private static void PrepareResource(long locationId, CatalogItem catalogItem, ulong chunkLength, ulong chunkCount)
+    private static void PrepareResource(H5Group catalogStruct, CatalogItem catalogItem, uint chunkLength, ulong chunkCount)
     {
-        long groupId = -1;
-        long datasetId = -1;
+        if (chunkLength <= 0)
+            throw new Exception("The sample rate is too low.");
 
-        try
-        {
-            if (chunkLength <= 0)
-                throw new Exception(ErrorMessage.Mat73Writer_SampleRateTooLow);
+        var resourceStruct = GetOrCreateMatStruct(catalogStruct, catalogItem.Resource.Id);
 
-            groupId = OpenOrCreateStruct(locationId, catalogItem.Resource.Id).GroupId;
-            datasetId = OpenOrCreateResource(groupId, $"dataset_{catalogItem.Representation.Id}{GetRepresentationParameterString(catalogItem.Parameters)}", chunkLength, chunkCount).DatasetId;
-        }
-        finally
-        {
-            if (H5I.is_valid(groupId) > 0) { _ = H5G.close(groupId); }
-            if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
-        }
+        CreateMatDataset(
+            resourceStruct, 
+            $"dataset_{catalogItem.Representation.Id}{GetRepresentationParameterString(catalogItem.Parameters)}", 
+            chunkLength, 
+            chunkCount
+        );
     }
 
     // low level
-    private static (long DatasetId, bool IsNew) OpenOrCreateResource(long locationId, string name, ulong chunkLength, ulong chunkCount)
+
+    private static H5Dataset CreateMatDataset(H5Group parent, string id, uint chunkLength, ulong chunkCount)
     {
-        long datasetId = -1;
-        GCHandle gcHandle_fillValue = default;
-        bool isNew;
+        // var fillValue = double.NaN;
 
-        try
+        var dataset = new H5Dataset<Memory<double>>(
+            fileDims: [chunkLength * chunkCount],
+            chunks: [chunkLength]
+        )
         {
-            var fillValue = double.NaN;
-            gcHandle_fillValue = GCHandle.Alloc(fillValue, GCHandleType.Pinned);
-
-            (datasetId, isNew) = IOHelper.OpenOrCreateDataset(locationId, name, H5T.NATIVE_DOUBLE, chunkLength, chunkCount, gcHandle_fillValue.AddrOfPinnedObject());
-
-            PrepareStringAttribute(datasetId, "MATLAB_class", GetMatTypeFromType(typeof(double)));
-        }
-        catch (Exception)
-        {
-            if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
-
-            throw;
-        }
-        finally
-        {
-            if (gcHandle_fillValue.IsAllocated)
-                gcHandle_fillValue.Free();
-        }
-
-        return (datasetId, isNew);
-    }
-
-    private static (long GroupId, bool IsNew) OpenOrCreateStruct(long locationId, string path)
-    {
-        long groupId = -1;
-        bool isNew;
-
-        try
-        {
-            (groupId, isNew) = IOHelper.OpenOrCreateGroup(locationId, path);
-
-            PrepareStringAttribute(groupId, "MATLAB_class", "struct");
-        }
-        catch (Exception)
-        {
-            if (H5I.is_valid(groupId) > 0) { _ = H5G.close(groupId); }
-
-            throw;
-        }
-
-        return (groupId, isNew);
-    }
-
-    private static void PrepareStringAttribute(long locationId, string name, string value)
-    {
-        long typeId = -1;
-        long attributeId = -1;
-
-        bool isNew;
-
-        try
-        {
-            var classNamePtr = Marshal.StringToHGlobalAnsi(value);
-
-            typeId = H5T.copy(H5T.C_S1);
-            _ = H5T.set_size(typeId, new IntPtr(value.Length));
-
-            (attributeId, isNew) = IOHelper.OpenOrCreateAttribute(locationId, name, typeId, () =>
+            Attributes = 
             {
-                long dataspaceId = -1;
-                long localAttributeId = -1;
+                ["MATLAB_class"] = GetMatTypeFromType(typeof(double))
+            }
+        };
 
-                try
-                {
-                    dataspaceId = H5S.create(H5S.class_t.SCALAR);
-                    localAttributeId = H5A.create(locationId, name, typeId, dataspaceId);
-                }
-                finally
-                {
-                    if (H5I.is_valid(dataspaceId) > 0) { _ = H5S.close(dataspaceId); }
-                }
+        parent[id] = dataset;
 
-                return localAttributeId;
-            });
-
-            if (isNew)
-                _ = H5A.write(attributeId, typeId, classNamePtr);
-        }
-        finally
-        {
-            if (H5I.is_valid(typeId) > 0) { _ = H5T.close(typeId); }
-            if (H5I.is_valid(attributeId) > 0) { _ = H5A.close(attributeId); }
-        }
+        return dataset;
     }
 
-    private static void PrepareInt32Attribute(long locationId, string name, Int32 value)
+    private static H5Group GetOrCreateMatStruct(H5Group parent, string id)
     {
-        long attributeId = -1;
-        bool isNew;
-
-        try
+        if (parent.TryGetValue(id, out var value) && value is H5Group group)
         {
-            (attributeId, isNew) = IOHelper.OpenOrCreateAttribute(locationId, name, H5T.NATIVE_INT32, 1, [1]);
-
-            if (isNew)
-                IOHelper.Write(attributeId, [value], DataContainerType.Attribute);
+            return group;
         }
-        finally
+
+        else
         {
-            if (H5I.is_valid(attributeId) > 0) { _ = H5A.close(attributeId); }
+            var newGroup = new H5Group {
+                Attributes = 
+                {
+                    ["MATLAB_class"] = "struct"
+                }
+            };
+
+            parent[id] = newGroup;
+
+            return newGroup;
         }
     }
 
@@ -364,172 +251,94 @@ public class Mat73 : IDataWriter
     {
         if (type == typeof(double))
             return "double";
+
         else if (type == typeof(char))
             return "char";
+
         else if (type == typeof(string))
             return "cell";
+
         else
             throw new NotImplementedException();
     }
 
     // low level -> preamble
 
-    private static void WritePreamble(string filePath)
+    private static void WritePreamble(Stream stream)
     {
-        using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Write);
         var streamData1 = Encoding.ASCII.GetBytes($"MATLAB 7.3 MAT-file, Platform: PCWIN64, Created on: {DateTime.Now.ToString("ddd MMM dd HH:mm:ss yyyy", CultureInfo.InvariantCulture)} HDF5 schema 1.00 .                     ");
         var streamData2 = new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x49, 0x4D };
         var streamData3 = new byte[512 - streamData1.Length - streamData2.Length];
 
-        fileStream.Write(streamData1, 0, streamData1.Length);
-        fileStream.Write(streamData2, 0, streamData2.Length);
-        fileStream.Write(streamData3, 0, streamData3.Length);
+        stream.Write(streamData1, 0, streamData1.Length);
+        stream.Write(streamData2, 0, streamData2.Length);
+        stream.Write(streamData3, 0, streamData3.Length);
     }
 
     // low level -> string
+
     private static char GetRefsName(byte index)
     {
         if (index < 26)
             return (char)(index + 0x61);
+
         else if (index < 54)
             return (char)(index + 0x41);
+
         else if (index < 63)
             return (char)(index + 0x31);
+
         else if (index < 64)
             return (char)(index + 0x30);
+
         else
             throw new ArgumentException("argument 'index' must be < 64");
     }
 
-    private void PrepareAllTextEntries(IList<TextEntry> textEntrySet)
+    private void PrepareAllTextEntries(H5File h5File, IEnumerable<TextEntry> textEntries)
     {
+        var refsGroup = new H5Group();
+        h5File["#refs#"] = refsGroup;
+
         var index = (byte)0;
 
-        textEntrySet.ToList().ForEach(textEntry =>
+        foreach (var textEntry in textEntries)
         {
-            long groupId = -1;
-            bool isNew;
-
-            try
-            {
-                (groupId, isNew) = OpenOrCreateStruct(_fileId, textEntry.Path);
-                PrepareRefsCellString(textEntry, GetRefsName(index).ToString());
-                PrepareTextEntryCellString(textEntry, GetRefsName(index).ToString());
-            }
-            finally
-            {
-                if (H5I.is_valid(groupId) > 0) { _ = H5G.close(groupId); }
-            }
+            PrepareRefsCellAndTextEntryCellString(
+                textEntry, 
+                GetRefsName(index).ToString(), 
+                refsGroup
+            );
 
             index++;
-        });
-    }
-
-    private void PrepareRefsCellString(TextEntry textEntry, string refsEntryName)
-    {
-        long datasetId = -1;
-        bool isNew;
-
-        GCHandle gcHandle_data;
-
-        gcHandle_data = default;
-
-        try
-        {
-            var data = Encoding.Unicode.GetBytes(textEntry.Content);
-            gcHandle_data = GCHandle.Alloc(data, GCHandleType.Pinned);
-
-            (datasetId, isNew) = IOHelper.OpenOrCreateDataset(_fileId, $"/#refs#/{refsEntryName}", H5T.NATIVE_UINT16, () =>
-            {
-                long dataspaceId = -1;
-                long lcPropertyId = -1;
-
-                try
-                {
-                    lcPropertyId = H5P.create(H5P.LINK_CREATE);
-                    _ = H5P.set_create_intermediate_group(lcPropertyId, 1);
-                    dataspaceId = H5S.create_simple(2, [(ulong)(data.Length / 2), 1], null);
-                    datasetId = H5D.create(_fileId, $"/#refs#/{refsEntryName}", H5T.NATIVE_UINT16, dataspaceId, lcPropertyId, H5P.DEFAULT, H5P.DEFAULT);
-                }
-                catch
-                {
-                    if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
-
-                    throw;
-                }
-                finally
-                {
-                    if (H5I.is_valid(lcPropertyId) > 0) { _ = H5P.close(lcPropertyId); }
-                    if (H5I.is_valid(dataspaceId) > 0) { _ = H5S.close(dataspaceId); }
-                }
-
-                return datasetId;
-            });
-
-            if (isNew)
-                _ = H5D.write(datasetId, H5T.NATIVE_UINT16, H5S.ALL, H5S.ALL, H5P.DEFAULT, gcHandle_data.AddrOfPinnedObject());
-
-            PrepareStringAttribute(datasetId, "MATLAB_class", GetMatTypeFromType(typeof(char)));
-            PrepareInt32Attribute(datasetId, "MATLAB_int_decode", 2);
-        }
-        finally
-        {
-            if (gcHandle_data.IsAllocated)
-                gcHandle_data.Free();
-
-            if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
         }
     }
 
-    private void PrepareTextEntryCellString(TextEntry textEntry, string refsEntryName)
+    private void PrepareRefsCellAndTextEntryCellString(TextEntry textEntry, string refsEntryId, H5Group refsGroup)
     {
-        long datasetId = -1;
-        bool isNew;
+        var dataAsBytes = Encoding.Unicode.GetBytes(textEntry.Value);
 
-        var objectReferencePointer = IntPtr.Zero;
+        #warning PureHDF should be able to work with raw byte arrays
+        var data = MemoryMarshal.Cast<byte, ushort>(dataAsBytes).ToArray();
 
-        try
+        var dataset = new H5Dataset<ushort[]>(data)
         {
-            objectReferencePointer = Marshal.AllocHGlobal(8);
-
-            (datasetId, isNew) = IOHelper.OpenOrCreateDataset(_fileId, $"{textEntry.Path}/{textEntry.Name}", H5T.STD_REF_OBJ, () =>
+            Attributes =
             {
-                long dataspaceId = -1;
-
-                try
-                {
-                    dataspaceId = H5S.create_simple(2, [1, 1], null);
-                    datasetId = H5D.create(_fileId, $"{textEntry.Path}/{textEntry.Name}", H5T.STD_REF_OBJ, dataspaceId);
-                }
-                catch
-                {
-                    if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
-
-                    throw;
-                }
-                finally
-                {
-                    if (H5I.is_valid(dataspaceId) > 0) { _ = H5S.close(dataspaceId); }
-                }
-
-                return datasetId;
-            });
-
-            if (isNew)
-            {
-                _ = H5R.create(objectReferencePointer, _fileId, $"/#refs#/{refsEntryName}", H5R.type_t.OBJECT, -1);
-                _ = H5D.write(datasetId, H5T.STD_REF_OBJ, H5S.ALL, H5S.ALL, H5P.DEFAULT, objectReferencePointer);
+                ["MATLAB_class"] = GetMatTypeFromType(typeof(char)),
+                ["MATLAB_int_decode"] = 2
             }
+        };
 
-            PrepareStringAttribute(datasetId, "MATLAB_class", GetMatTypeFromType(typeof(string)));
-        }
-        finally
+        refsGroup[refsEntryId] = dataset;
+
+        textEntry.Parent[textEntry.Key] = new H5Dataset(data: new H5ObjectReference(dataset))
         {
-            if (objectReferencePointer != IntPtr.Zero)
-                Marshal.FreeHGlobal(objectReferencePointer);
-
-            if (H5I.is_valid(datasetId) > 0) { _ = H5D.close(datasetId); }
-        }
+            Attributes = 
+            {
+                ["MATLAB_class"] = GetMatTypeFromType(typeof(string))
+            }
+        };
     }
 
     //private void PrepareRefsTextEntryChar(TextEntry textEntry)

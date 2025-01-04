@@ -6,7 +6,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="HDF5.NET" Version="1.0.0-alpha.22" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
     <PackageReference Include="Nexus.Extensibility" Version="2.0.0-beta.33" />
     <PackageReference Include="xunit" Version="2.7.0" />
@@ -17,7 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Nexus.Writers.Mat73\Nexus.Writers.Mat73.csproj" />
+    <ProjectReference Include="../../src/Nexus.Writers.Mat73/Nexus.Writers.Mat73.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,14 +1,14 @@
 ﻿namespace Nexus.Writers;
 
-public static class GeneralHelper
+public static class Utils
 {
-    public static (ulong, ulong) CalculateChunkParameters(ulong totalLength)
+    public static (uint, ulong) CalculateChunkParameters(ulong totalLength)
     {
         var maxChunkLength = 4096UL;
-        var chunkLength = GeneralHelper.FindLargestDivisor(totalLength, maxChunkLength);
+        var chunkLength = FindLargestDivisor(totalLength, maxChunkLength);
         var chunkCount = totalLength / chunkLength;
 
-        return (chunkLength, chunkCount);
+        return ((uint)chunkLength, chunkCount);
     }
 
     private static ulong FindLargestDivisor(ulong length, ulong limit)
@@ -16,13 +16,13 @@ public static class GeneralHelper
         if (length < limit)
             return length;
 
-        var primes = GeneralHelper.Factorize(length)
+        var primes = Factorize(length)
             .GroupBy(value => value)
             .Select(group => group.Aggregate(1UL, (previous, next) => previous * next))
             .Where(prime => prime <= limit)
             .ToList();
 
-        var products = GeneralHelper.Powerset(primes)
+        var products = Powerset(primes)
             .Select(combo => combo.Aggregate(1UL, (previous, next) => previous * next))
             .ToList();
 
