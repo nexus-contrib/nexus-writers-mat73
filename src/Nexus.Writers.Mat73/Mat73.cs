@@ -114,9 +114,9 @@ public class Mat73 : IDataWriter
                     (var chunkLength, var chunkCount) = Utils.CalculateChunkParameters(totalLength);
                     PrepareResource(catalogStruct, catalogItem, chunkLength, chunkCount);
                 }
-
-                PrepareAllTextEntries(h5File, textEntries);
             }
+
+            PrepareAllTextEntries(h5File, textEntries);
 
             _fileStream = File.Open(
                 filePath,
@@ -321,18 +321,24 @@ public class Mat73 : IDataWriter
         #warning PureHDF should be able to work with raw byte arrays
         var data = MemoryMarshal.Cast<byte, ushort>(dataAsBytes).ToArray();
 
-        var dataset = new H5Dataset<ushort[]>(data)
+        var dataset = new H5Dataset<ushort[]>(data, fileDims: [(ulong)data.Length, 1])
         {
             Attributes =
             {
                 ["MATLAB_class"] = GetMatTypeFromType(typeof(char)),
-                ["MATLAB_int_decode"] = 2
+                ["MATLAB_int_decode"] = new int[] { 2 }
             }
         };
 
         refsGroup[refsEntryId] = dataset;
 
-        textEntry.Parent[textEntry.Key] = new H5Dataset(data: new H5ObjectReference(dataset))
+        textEntry.Parent[textEntry.Key] = new H5Dataset(
+            data: new H5ObjectReference[]
+            {
+                new(dataset)
+            },
+            fileDims: [1, 1]
+        )
         {
             Attributes = 
             {
