@@ -18,8 +18,8 @@ public class Mat73Tests(DataWriterFixture fixture) : IClassFixture<DataWriterFix
 
         var context = new DataWriterContext(
             ResourceLocator: new Uri(targetFolder),
-            SystemConfiguration: default!,
-            RequestConfiguration: default!);
+            RequestConfiguration: default!
+        );
 
         await dataWriter.SetContextAsync(context, NullLogger.Instance, CancellationToken.None);
 
