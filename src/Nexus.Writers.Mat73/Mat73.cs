@@ -198,7 +198,7 @@ public class Mat73 : IDataWriter
         try
         {
             var hdfDataType = GetHdfDataType(Context.Precision);
-            var length = (ulong)(writeRequest.Data.Length / SizeOf(Context.Precision));
+            var length = (ulong)(writeRequest.Data.Length / (int)Context.Precision);
             groupId = H5G.open(_fileId, $"/{catalogPhysicalId}/{writeRequest.CatalogItem.Resource.Id}");
 
             var datasetName = $"dataset_{writeRequest.CatalogItem.Representation.Id}{GetRepresentationParameterString(writeRequest.CatalogItem.Parameters)}";
@@ -398,16 +398,6 @@ public class Mat73 : IDataWriter
         {
             Precision.Float32 => GetMatTypeFromType(typeof(Single)),
             Precision.Float64 => GetMatTypeFromType(typeof(Double)),
-            _ => throw new NotSupportedException($"The precision {precision} is not supported.")
-        };
-    }
-
-    private static int SizeOf(Precision precision)
-    {
-        return precision switch
-        {
-            Precision.Float32 => sizeof(float),
-            Precision.Float64 => sizeof(double),
             _ => throw new NotSupportedException($"The precision {precision} is not supported.")
         };
     }
