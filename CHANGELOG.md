@@ -1,3 +1,8 @@
+## v2.0.0-beta.36 - 2026-09-11
+
+- Follow Nexus changes.
+- Support writing Float32 and Float64 data based on precision.
+
 ## v2.0.0-beta.35 - 2025-02-25
 
 - Follow Nexus changes

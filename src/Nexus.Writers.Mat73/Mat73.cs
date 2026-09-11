@@ -110,7 +110,7 @@ public class Mat73 : IDataWriter
                         foreach (var catalogItem in catalogItemGroup)
                         {
                             (var chunkLength, var chunkCount) = GeneralHelper.CalculateChunkParameters(totalLength);
-                            PrepareResource(groupId, catalogItem, chunkLength, chunkCount);
+                            PrepareResource(groupId, catalogItem, chunkLength, chunkCount, Context.Precision);
                         }
                     }
                     finally
@@ -197,7 +197,8 @@ public class Mat73 : IDataWriter
 
         try
         {
-            var length = (ulong)writeRequest.Data.Length;
+            var hdfDataType = GetHdfDataType(Context.Precision);
+            var length = (ulong)(writeRequest.Data.Length / SizeOf(Context.Precision));
             groupId = H5G.open(_fileId, $"/{catalogPhysicalId}/{writeRequest.CatalogItem.Resource.Id}");
 
             var datasetName = $"dataset_{writeRequest.CatalogItem.Representation.Id}{GetRepresentationParameterString(writeRequest.CatalogItem.Parameters)}";
@@ -215,7 +216,7 @@ public class Mat73 : IDataWriter
 
             fixed (byte* bufferPtr = MemoryMarshal.AsBytes(writeRequest.Data.Span))
             {
-                if (H5D.write(datasetId, H5T.NATIVE_DOUBLE, dataspaceId_Buffer, dataspaceId, H5P.DEFAULT, new IntPtr(bufferPtr)) < 0)
+                if (H5D.write(datasetId, hdfDataType, dataspaceId_Buffer, dataspaceId, H5P.DEFAULT, new IntPtr(bufferPtr)) < 0)
                     throw new Exception(ErrorMessage.Mat73Writer_CouldNotWriteChunk_Dataset);
             }
         }
@@ -228,7 +229,7 @@ public class Mat73 : IDataWriter
         }
     }
 
-    private static void PrepareResource(long locationId, CatalogItem catalogItem, ulong chunkLength, ulong chunkCount)
+    private static void PrepareResource(long locationId, CatalogItem catalogItem, ulong chunkLength, ulong chunkCount, Precision precision)
     {
         long groupId = -1;
         long datasetId = -1;
@@ -239,7 +240,7 @@ public class Mat73 : IDataWriter
                 throw new Exception(ErrorMessage.Mat73Writer_SampleRateTooLow);
 
             groupId = OpenOrCreateStruct(locationId, catalogItem.Resource.Id).GroupId;
-            datasetId = OpenOrCreateResource(groupId, $"dataset_{catalogItem.Representation.Id}{GetRepresentationParameterString(catalogItem.Parameters)}", chunkLength, chunkCount).DatasetId;
+            datasetId = OpenOrCreateResource(groupId, $"dataset_{catalogItem.Representation.Id}{GetRepresentationParameterString(catalogItem.Parameters)}", chunkLength, chunkCount, precision).DatasetId;
         }
         finally
         {
@@ -249,7 +250,7 @@ public class Mat73 : IDataWriter
     }
 
     // low level
-    private static (long DatasetId, bool IsNew) OpenOrCreateResource(long locationId, string name, ulong chunkLength, ulong chunkCount)
+    private static (long DatasetId, bool IsNew) OpenOrCreateResource(long locationId, string name, ulong chunkLength, ulong chunkCount, Precision precision)
     {
         long datasetId = -1;
         GCHandle gcHandle_fillValue = default;
@@ -257,12 +258,18 @@ public class Mat73 : IDataWriter
 
         try
         {
-            var fillValue = Double.NaN;
+            var fillValue = precision switch
+            {
+                Precision.Float32 => Single.NaN,
+                Precision.Float64 => Double.NaN,
+                _ => throw new NotSupportedException($"The precision {precision} is not supported.")
+            };
+
             gcHandle_fillValue = GCHandle.Alloc(fillValue, GCHandleType.Pinned);
 
-            (datasetId, isNew) = IOHelper.OpenOrCreateDataset(locationId, name, H5T.NATIVE_DOUBLE, chunkLength, chunkCount, gcHandle_fillValue.AddrOfPinnedObject());
+            (datasetId, isNew) = IOHelper.OpenOrCreateDataset(locationId, name, GetHdfDataType(precision), chunkLength, chunkCount, gcHandle_fillValue.AddrOfPinnedObject());
 
-            PrepareStringAttribute(datasetId, "MATLAB_class", GetMatTypeFromType(typeof(double)));
+            PrepareStringAttribute(datasetId, "MATLAB_class", GetMatType(precision));
         }
         catch (Exception)
         {
@@ -362,6 +369,9 @@ public class Mat73 : IDataWriter
 
     private static string GetMatTypeFromType(Type type)
     {
+        if (type == typeof(Single))
+            return "single";
+
         if (type == typeof(Double))
             return "double";
         else if (type == typeof(char))
@@ -370,6 +380,36 @@ public class Mat73 : IDataWriter
             return "cell";
         else
             throw new NotImplementedException();
+    }
+
+    private static long GetHdfDataType(Precision precision)
+    {
+        return precision switch
+        {
+            Precision.Float32 => H5T.NATIVE_FLOAT,
+            Precision.Float64 => H5T.NATIVE_DOUBLE,
+            _ => throw new NotSupportedException($"The precision {precision} is not supported.")
+        };
+    }
+
+    private static string GetMatType(Precision precision)
+    {
+        return precision switch
+        {
+            Precision.Float32 => GetMatTypeFromType(typeof(Single)),
+            Precision.Float64 => GetMatTypeFromType(typeof(Double)),
+            _ => throw new NotSupportedException($"The precision {precision} is not supported.")
+        };
+    }
+
+    private static int SizeOf(Precision precision)
+    {
+        return precision switch
+        {
+            Precision.Float32 => sizeof(float),
+            Precision.Float64 => sizeof(double),
+            _ => throw new NotSupportedException($"The precision {precision} is not supported.")
+        };
     }
 
     // low level -> preamble

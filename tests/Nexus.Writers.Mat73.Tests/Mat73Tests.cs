@@ -2,6 +2,7 @@ using HDF5.NET;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nexus.DataModel;
 using Nexus.Extensibility;
+using System.Runtime.InteropServices;
 using Xunit;
 
 namespace Nexus.Writers.Tests;
@@ -10,14 +11,17 @@ public class Mat73Tests(DataWriterFixture fixture) : IClassFixture<DataWriterFix
 {
     private readonly DataWriterFixture _fixture = fixture;
 
-    [Fact]
-    public async Task CanWriteFiles()
+    [Theory]
+    [InlineData(Precision.Float32)]
+    [InlineData(Precision.Float64)]
+    public async Task CanWriteFiles(Precision precision)
     {
         var targetFolder = _fixture.GetTargetFolder();
         var dataWriter = new Mat73() as IDataWriter;
 
         var context = new DataWriterContext(
             ResourceLocator: new Uri(targetFolder),
+            Precision: precision,
             RequestConfiguration: default!
         );
 
@@ -52,9 +56,7 @@ public class Mat73Tests(DataWriterFixture fixture) : IClassFixture<DataWriterFix
                 .ToArray()
         };
 
-        var requests = catalogItems
-            .Select((catalogItem, i) => new WriteRequest(catalogItem, data[i]))
-            .ToArray();
+        var requests = CreateRequests(catalogItems, data, precision);
 
         await dataWriter.OpenAsync(begin, TimeSpan.FromSeconds(2000), samplePeriod, catalogItems, CancellationToken.None);
         await dataWriter.WriteAsync(TimeSpan.Zero, requests, new Progress<double>(), CancellationToken.None);
@@ -86,19 +88,9 @@ public class Mat73Tests(DataWriterFixture fixture) : IClassFixture<DataWriterFix
         //AssertProperties(_fixture.Catalogs[0].Resources[0].Properties, catalog1.Resources[0].Properties);
         //AssertProperties(_fixture.Catalogs[0].Resources[0].Properties, catalog1.Resources[1].Properties);
 
-        var actualData0 = catalog1
-            .Group("resource1")
-            .Dataset("dataset_1_s")
-            .Read<double>();
+        AssertData(catalog1.Group("resource1").Dataset("dataset_1_s"), data[0], precision);
 
-        Assert.True(data[0].Concat(data[0]).SequenceEqual(actualData0));
-
-        var actualData1 = catalog1
-            .Group("resource1")
-            .Dataset("dataset_2_s")
-            .Read<double>();
-
-        Assert.True(data[1].Concat(data[1]).SequenceEqual(actualData1));
+        AssertData(catalog1.Group("resource1").Dataset("dataset_2_s"), data[1], precision);
 
         // catalog 2
         var catalog2 = h5File.Group("D_E_F");
@@ -110,12 +102,7 @@ public class Mat73Tests(DataWriterFixture fixture) : IClassFixture<DataWriterFix
         //AssertProperties(_fixture.Catalogs[1].Properties, catalog2.Properties);
         //AssertProperties(_fixture.Catalogs[1].Resources[0].Properties, catalog2.Resources[0].Properties);
 
-        var actualData2 = catalog2
-            .Group("resource3")
-            .Dataset("dataset_1_s")
-            .Read<double>();
-
-        Assert.True(data[2].Concat(data[2]).SequenceEqual(actualData2));
+        AssertData(catalog2.Group("resource3").Dataset("dataset_1_s"), data[2], precision);
 
         //void AssertProperties(IReadOnlyDictionary<string, string> expected, List<xxx> actual)
         //{
@@ -130,5 +117,39 @@ public class Mat73Tests(DataWriterFixture fixture) : IClassFixture<DataWriterFix
         //        Assert.Equal(match, value);
         //    }
         //}
+
+        static WriteRequest[] CreateRequests(CatalogItem[] catalogItems, double[][] data, Precision precision)
+        {
+            return precision switch
+            {
+                Precision.Float32 => catalogItems
+                    .Select((catalogItem, i) => new WriteRequest(catalogItem, MemoryMarshal.Cast<float, byte>(data[i].Select(value => (float)value).ToArray()).ToArray()))
+                    .ToArray(),
+
+                Precision.Float64 => catalogItems
+                    .Select((catalogItem, i) => new WriteRequest(catalogItem, MemoryMarshal.Cast<double, byte>(data[i]).ToArray()))
+                    .ToArray(),
+
+                _ => throw new NotSupportedException($"The precision {precision} is not supported.")
+            };
+        }
+
+        static void AssertData(H5Dataset dataset, double[] expected, Precision precision)
+        {
+            switch (precision)
+            {
+                case Precision.Float32:
+                    var expectedSingle = expected.Select(value => (float)value).ToArray();
+                    Assert.True(expectedSingle.Concat(expectedSingle).SequenceEqual(dataset.Read<float>()));
+                    break;
+
+                case Precision.Float64:
+                    Assert.True(expected.Concat(expected).SequenceEqual(dataset.Read<double>()));
+                    break;
+
+                default:
+                    throw new NotSupportedException($"The precision {precision} is not supported.");
+            }
+        }
     }
 }
